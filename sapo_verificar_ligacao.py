@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Script QGIS Processing: SAPO - Verificar Ligação Entre Bancos
-Versão: 1.0.0
+Versão: 1.0.2
 Grupo: SAPO
 Compatibilidade: QGIS 3.24+
 
@@ -337,20 +337,25 @@ def extrair_pontos_de_geometria(geom):
 
 
 def coletar_pontos_conexao_feicao(geom_feicao, tipo_geom, geom_fronteira, tolerancia):
-    """Identifica os pontos de toque ou interseção de uma feição com a fronteira da moldura."""
-    pontos_encontrados = []
+    """
+    Identifica os pontos de conexão de uma feição com a fronteira da moldura.
+    Evita a geração de múltiplos pontos redundantes para a mesma extremidade/conexão.
+    """
+    pontos_candidatos = []
 
     if tipo_geom == QgsWkbTypes.LineGeometry:
+        # Se intercepta a fronteira geometricamente
         inter = geom_feicao.intersection(geom_fronteira)
         if inter and not inter.isEmpty():
-            pontos_encontrados.extend(extrair_pontos_de_geometria(inter))
+            pontos_candidatos.extend(extrair_pontos_de_geometria(inter))
 
+        # Se não interceptou diretamente ou para capturar extremidades com gap <= tolerancia
         pt_ini = geom_feicao.interpolate(0.0)
         pt_fim = geom_feicao.interpolate(geom_feicao.length())
         if pt_ini and pt_ini.distance(geom_fronteira) <= tolerancia:
-            pontos_encontrados.append(pt_ini.asPoint())
+            pontos_candidatos.append(pt_ini.asPoint())
         if pt_fim and pt_fim.distance(geom_fronteira) <= tolerancia:
-            pontos_encontrados.append(pt_fim.asPoint())
+            pontos_candidatos.append(pt_fim.asPoint())
 
     elif tipo_geom == QgsWkbTypes.PolygonGeometry:
         if geom_feicao.intersects(geom_fronteira) or geom_feicao.distance(geom_fronteira) <= tolerancia:
@@ -358,19 +363,23 @@ def coletar_pontos_conexao_feicao(geom_feicao, tipo_geom, geom_fronteira, tolera
             if contorno and not contorno.isEmpty():
                 inter_contorno = contorno.intersection(geom_fronteira)
                 if inter_contorno and not inter_contorno.isEmpty():
-                    pontos_encontrados.extend(extrair_pontos_de_geometria(inter_contorno))
+                    pontos_candidatos.extend(extrair_pontos_de_geometria(inter_contorno))
 
-            for pt_vert in geom_feicao.vertices():
-                pt_geom = QgsGeometry.fromPointXY(QgsPointXY(pt_vert.x(), pt_vert.y()))
-                if pt_geom.distance(geom_fronteira) <= tolerancia:
-                    pontos_encontrados.append(QgsPointXY(pt_vert.x(), pt_vert.y()))
+            # Se o contorno não gerou interseção (gap <= tolerancia), verifica os vértices
+            if not pontos_candidatos:
+                for pt_vert in geom_feicao.vertices():
+                    pt_geom = QgsGeometry.fromPointXY(QgsPointXY(pt_vert.x(), pt_vert.y()))
+                    if pt_geom.distance(geom_fronteira) <= tolerancia:
+                        pontos_candidatos.append(QgsPointXY(pt_vert.x(), pt_vert.y()))
 
+    # Deduplicação rigorosa na tolerância da camada
     pontos_unicos = []
-    tol_duplicado = tolerancia * 0.1 if tolerancia > 0 else 1e-6
-    for pt in pontos_encontrados:
+    tol_dedup = max(tolerancia * 0.95, 1e-5)
+    for pt in pontos_candidatos:
         duplicado = False
+        pt_geom = QgsGeometry.fromPointXY(pt)
         for pu in pontos_unicos:
-            if abs(pt.x() - pu.x()) <= tol_duplicado and abs(pt.y() - pu.y()) <= tol_duplicado:
+            if pt_geom.distance(QgsGeometry.fromPointXY(pu)) <= tol_dedup:
                 duplicado = True
                 break
         if not duplicado:
@@ -576,16 +585,26 @@ def executar_pipeline_validacao_ligacao(camadas_moldura, incluir_linhas=True, in
     resultados_divergentes = []
     resultados_sem_ligacao = []
 
+    # Estruturas para rastrear conexões já processadas e evitar qualquer duplicidade de flags
+    indices_pareados = set()
+    pares_feicoes_processados = set()
+    pontas_soltas_processadas = set()
+
     for idx_p1, p1 in enumerate(todos_pontos_conexao):
+        # Se este ponto já foi pareado como vizinho em uma varredura anterior, pula (elimina flag recíproco)
+        if idx_p1 in indices_pareados:
+            continue
+
         pt1_ref = p1['pt_ref']
         bbox_busca = QgsGeometry.fromPointXY(pt1_ref).buffer(tol_busca_ref, 4).boundingBox()
         candidatos_ids = indice_espacial.intersects(bbox_busca)
 
         melhor_candidato = None
+        melhor_candidato_idx = None
         menor_dist_metros = float('inf')
 
         for c_id in candidatos_ids:
-            if c_id == idx_p1:
+            if c_id == idx_p1 or c_id in indices_pareados:
                 continue
             p2 = todos_pontos_conexao[c_id]
 
@@ -600,8 +619,22 @@ def executar_pipeline_validacao_ligacao(camadas_moldura, incluir_linhas=True, in
                 if dist_m < menor_dist_metros:
                     menor_dist_metros = dist_m
                     melhor_candidato = p2
+                    melhor_candidato_idx = c_id
 
         if melhor_candidato is not None:
+            # Marca ambos os pontos (origem e vizinho) como pareados
+            indices_pareados.add(idx_p1)
+            indices_pareados.add(melhor_candidato_idx)
+
+            # Evita duplicidade entre as mesmas feições (mesmo em geometrias complexas ou multipartes)
+            chave_par = tuple(sorted([
+                (p1['moldura_id'], p1['camada_base'], p1['id_origem']),
+                (melhor_candidato['moldura_id'], melhor_candidato['camada_base'], melhor_candidato['id_origem'])
+            ]))
+            if chave_par in pares_feicoes_processados:
+                continue
+            pares_feicoes_processados.add(chave_par)
+
             difs = comparar_atributos(p1['atributos'], melhor_candidato['atributos'])
 
             registro = {
@@ -620,6 +653,12 @@ def executar_pipeline_validacao_ligacao(camadas_moldura, incluir_linhas=True, in
             else:
                 resultados_divergentes.append(registro)
         else:
+            # Ponta solta (Sem ligação encontrada no raio de tolerância)
+            chave_ponta = (p1['moldura_id'], p1['camada_base'], p1['id_origem'])
+            if chave_ponta in pontas_soltas_processadas:
+                continue
+            pontas_soltas_processadas.add(chave_ponta)
+
             registro = {
                 'ponto': p1,
                 'ponto_par': None,
@@ -696,7 +735,11 @@ def executar_pipeline_validacao_ligacao(camadas_moldura, incluir_linhas=True, in
         pr.addFeatures(feats)
         layer.updateExtents()
         projeto.addMapLayer(layer, False)
-        grupo_resultado.addLayer(layer)
+        node = grupo_resultado.addLayer(layer)
+        if not node:
+            node = grupo_resultado.findLayer(layer.id())
+        if node:
+            node.setCustomProperty("showFeatureCount", True)
         return layer
 
     criar_camada_resultado("🔴 Erros_Sem_Ligacao", resultados_sem_ligacao)
@@ -728,7 +771,7 @@ class DialogoSapoVerificarLigacao(QDialog):
     Executa a verificação completa de ligação a 1m de tolerância com comparação de atributos.
     """
 
-    VERSAO = "1.0.0"
+    VERSAO = "1.0.2"
 
     def __init__(self, parent=None):
         super().__init__(parent or (iface.mainWindow() if iface else None))
@@ -1048,7 +1091,7 @@ class SapoVerificarLigacao(QgsProcessingAlgorithm):
     """
     Algoritmo QGIS Processing: SAPO - Verificar Ligação Entre Bancos
     """
-    VERSAO = "1.0.0"
+    VERSAO = "1.0.2"
 
     PARAM_MOLDURAS = 'PARAM_MOLDURAS'
     PARAM_INCLUIR_LINHAS = 'PARAM_INCLUIR_LINHAS'
