@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Script QGIS Processing: SAPO - Gerar Polígonos
-Versão: 1.0.0
+Versão: 1.1.0
 Grupo: SAPO
 Compatibilidade: QGIS 3.24+
 
@@ -42,7 +42,7 @@ import processing
 
 class SapoGerarPoligonos(QgsProcessingAlgorithm):
 
-    VERSAO = "1.0.0"
+    VERSAO = "1.1.0"
 
 
     PARAM_PASSO_1 = "PARAM_PASSO_1"
@@ -297,7 +297,8 @@ class SapoGerarPoligonos(QgsProcessingAlgorithm):
                 continue
             if (nome.startswith("delimitador") or "via_deslocamento" in nome or
                 "infra_barragem" in nome or "infra_ferrovia" in nome or
-                "trecho_drenagem" in nome or "drenagem" in nome or
+                "trecho_drenagem" in nome or "drenagem" in nome or 
+                "ap010" in nome or "ap030" in nome or "aq040" in nome or "ap050" in nome or "an010" in nome or "bh140" in nome or "bh080" in nome or "bi020" in nome or "bh0130" in nome or "bh170" in nome or 
                 nome == NOME_MOLDURA.lower()):
                 if camada not in camadas_origem:
                     camadas_origem.append(camada)
@@ -569,8 +570,8 @@ class SapoGerarPoligonos(QgsProcessingAlgorithm):
                     return c
             return None
 
-        camada_centroide_massa = localizar_camada_pontos(["centroide_massa_dagua", "centroide_massa"])
-        camada_centroide_edif = localizar_camada_pontos(["centroide_area_edificada", "centroide_area_construida", "centroide_edificada", "centroide_edif"])
+        camada_centroide_massa = localizar_camada_pontos(["centroide_massa_dagua", "centroide_massa", "centroide_bh140_p"])
+        camada_centroide_edif = localizar_camada_pontos(["centroide_area_edificada", "centroide_area_construida", "centroide_edificada", "centroide_edif", "centroide_al020_p"])
 
         permitidos_massa = ["ilha", "elemento_hidrografico"]
         permitidos_edif = ["massa_dagua", "massa", "ilha", "elemento_hidrografico"]
