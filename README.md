@@ -8,7 +8,7 @@ Coleção de scripts de processamento geoespacial desenvolvidos para o **QGIS (P
 
 | Script | Versão | Grupo | Descrição Resumida |
 | :--- | :---: | :---: | :--- |
-| **[`sapo_gerar_poligonos.py`](#1--sapo---gerar-polígonos-sapo_gerar_poligonospy)** | `1.0.0` | 🐸 SAPO | Pipeline autossuficiente em 4 etapas para geração e classificação de polígonos e cobertura terrestre. |
+| **[`sapo_gerar_poligonos.py`](#1--sapo---gerar-polígonos-sapo_gerar_poligonospy)** | `1.1.0` | 🐸 SAPO | Pipeline autossuficiente em 4 etapas para geração e classificação de polígonos e cobertura terrestre. |
 | **[`sapo_verificar_ligacao.py`](#2--sapo---verificar-ligação-entre-bancos-sapo_verificar_ligacaopy)** | `1.0.2` | 🐸 SAPO | Verificação de continuidade, ligação e divergência de atributos entre molduras/cartas de bancos vizinhos. |
 | **[`sapo_corrigir_drenagem.py`](#3--sapo---corrigir-drenagem-sapo_corrigir_drenagempy)** | `1.0.0` | 🐸 SAPO | Pipeline em 4 etapas para detecção, traçado de esqueleto central e correção de conflitos drenagem x curvas de nível. |
 
